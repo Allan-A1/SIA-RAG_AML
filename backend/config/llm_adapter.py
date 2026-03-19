@@ -291,3 +291,61 @@ class HuggingFaceAdapter(BaseLLMAdapter):
         return True  # handled via prompt injection
 
 
+class FallbackAdapter(BaseLLMAdapter):
+    """
+    Adapter that tries a primary provider and falls back to a secondary provider on failure.
+    Useful for handling rate limits or credits exhaustion automatically.
+    """
+    def __init__(self, primary: BaseLLMAdapter, fallback: BaseLLMAdapter):
+        self.primary = primary
+        self.fallback = fallback
+
+    def chat_completion(
+        self,
+        model: str,
+        messages: List[Dict[str, str]],
+        temperature: float = 0.0,
+        response_format: Optional[Dict[str, str]] = None,
+        **kwargs
+    ) -> ChatCompletion:
+        try:
+            return self.primary.chat_completion(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                response_format=response_format,
+                **kwargs
+            )
+        except Exception as e:
+            print(f"[FallbackAdapter] Primary LLM failed: {e}. Switching to fallback...")
+            
+            # Note: We don't pass the exact same model string to the fallback unless we know it supports it
+            # The calling code should ideally use settings.verifier_model or let the fallback use its default.
+            # But the fallback adapter handles its own models under the hood based on settings.
+            
+            # If the fallback is an OpenAIAdapter targeting OpenRouter, we need its specific model.
+            from backend.config.settings import settings
+            fallback_model = model
+            if hasattr(self.fallback, 'client') and hasattr(self.fallback.client, 'base_url'):
+                if "openrouter" in str(self.fallback.client.base_url):
+                    # We need to map `model` back to the fallback's model based on role
+                    if model == settings.verifier_model or model == settings.groq_model:
+                        fallback_model = settings.openrouter_verifier_model
+                    else:
+                        fallback_model = settings.openrouter_router_model
+
+            return self.fallback.chat_completion(
+                model=fallback_model,
+                messages=messages,
+                temperature=temperature,
+                response_format=response_format,
+                **kwargs
+            )
+
+    def supports_json_mode(self) -> bool:
+        # We assume json mode is supported if either adapter supports it.
+        # But specifically, if primary supports it, we return True. 
+        # If it falls back, we hope fallback supports it too.
+        return self.primary.supports_json_mode() or self.fallback.supports_json_mode()
+
+

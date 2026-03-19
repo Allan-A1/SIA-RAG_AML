@@ -168,12 +168,24 @@ AVAILABLE CONTEXT (use ONLY this information):
 
 Now answer the question above using only the provided context."""
 
+    # ── Build LLM messages with optional conversation history ────────
+    llm_messages = [{"role": "system", "content": VERIFIER_PROMPT}]
+
+    # Inject conversation history for memory/context awareness
+    conv_history = state.get("conversation_history") or []
+    if conv_history:
+        for msg in conv_history:
+            llm_messages.append({
+                "role": msg.get("role", "user"),
+                "content": msg.get("content", ""),
+            })
+        logger.debug(f"[verifier] Injected {len(conv_history)} history messages for context")
+
+    llm_messages.append({"role": "user", "content": user_prompt})
+
     response = _get_client().chat_completion(
         model=get_model_name("verifier"),
-        messages=[
-            {"role": "system", "content": VERIFIER_PROMPT},
-            {"role": "user",   "content": user_prompt},
-        ],
+        messages=llm_messages,
         temperature=settings.temperature,
     )
 

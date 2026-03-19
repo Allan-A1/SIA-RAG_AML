@@ -180,17 +180,41 @@ def evaluate_gap_detection(queries: List[Dict]) -> Dict[str, Any]:
     from backend.agents.schemas.gap_schemas import LLMJudgeOutput
 
     JUDGE_PROMPT = """\
-You are a senior AML compliance auditor. Given the regulatory obligation and a policy excerpt,
-classify whether the policy satisfies the obligation.
+You are a senior AML compliance auditor. Evaluate whether the internal bank Policy Excerpt \
+satisfies the stated Regulatory Obligation.
 
-Regulatory Obligation: {obligation}
-Policy Excerpt: {policy}
+Regulatory Obligation:
+{obligation}
+
+Internal Policy Excerpt:
+{policy}
+
+CLASSIFICATION RULES — apply strictly:
+
+COVERED   → The policy explicitly and specifically satisfies ALL requirements of the obligation.
+            • Correct timelines/thresholds must match the regulation (e.g. "7 days" ≠ "30 days").
+            • Vague or generic language alone (e.g. "monitored regularly") is NOT sufficient for COVERED.
+            • All required scope must be present (e.g. both foreign AND domestic PEPs, both companies AND trusts).
+
+PARTIAL   → The policy addresses the topic but is INCOMPLETE in one or more of these ways:
+            (a) Uses vague/generic language without required regulatory specifics or thresholds.
+            (b) Covers only SOME aspects or scope of the obligation (e.g., foreign PEPs but not domestic PEPs).
+            (c) States a WRONG specific value (e.g., policy says 30 days but regulation requires 7 days).
+            (d) Covers one regulatory requirement but is silent on related requirements in the same obligation.
+
+MISSING   → The policy has ZERO mention of the required concept or control. If the excerpt has no
+            words related to the regulatory topic at all, classify as MISSING, not PARTIAL.
+
+DECISION CHECKLIST (in order):
+1. Does the policy mention the topic at all?          → NO → MISSING
+2. Does it cover ALL aspects with correct specifics?  → YES → COVERED
+3. Otherwise (partial scope / vague / wrong values)   → PARTIAL
 
 Respond ONLY as valid JSON:
 {{
   "status": "COVERED" | "PARTIAL" | "MISSING",
-  "evidence": "<direct quote from policy proving coverage, or null>",
-  "gap_reason": "<if PARTIAL or MISSING: what is missing>",
+  "evidence": "<direct quote from policy proving coverage, or null if MISSING>",
+  "gap_reason": "<if PARTIAL or MISSING: explain exactly what is incomplete, vague, or absent>",
   "confidence": <0.0-1.0>
 }}"""
 
@@ -444,7 +468,7 @@ def evaluate_robustness() -> Dict[str, float]:
                 "What is the cash reporting limit for FIU-IND?",
                 "When must a bank file a cash report under Indian regulations?",
             ],
-            "expected_intent": "regulatory_lookup",
+            "expected_intent": "fact",          # specific value lookup → fact
             "expected_keyword": "10 lakh",
         },
         {
@@ -454,7 +478,7 @@ def evaluate_robustness() -> Dict[str, float]:
                 "How many days does a bank have to report an unusual transaction?",
                 "What is the smurfing report timeline in India?",
             ],
-            "expected_intent": "regulatory_lookup",
+            "expected_intent": "fact",          # specific timeline lookup → fact
             "expected_keyword": "7 days",
         },
     ]

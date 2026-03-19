@@ -6,6 +6,7 @@ from backend.api.chat import router as chat_router
 from backend.api.visualization import router as visualization_router
 from backend.api.documents import router as documents_router
 from backend.api.gap_analysis import router as gap_analysis_router
+from backend.api.transcribe import router as transcribe_router
 from backend.monitoring.metrics import MetricsMiddleware
 import logging
 import os
@@ -54,6 +55,7 @@ app.include_router(chat_router,   prefix="/chat",   tags=["Chat"])
 app.include_router(visualization_router, prefix="/visualize", tags=["Visualization"])
 app.include_router(documents_router,     prefix="/documents", tags=["Documents"])
 app.include_router(gap_analysis_router,  prefix="/gap-analysis", tags=["Gap Analysis"])
+app.include_router(transcribe_router,    prefix="/transcribe", tags=["Transcribe"])
 
 # ── Serve frontend static files ───────────────────────────────────────────────
 # Mount AFTER API routes so /api/* routes take priority.

@@ -11,6 +11,8 @@ Three tagging modes (set via TAG_MODE env var or argument):
   "rules"   – keyword/regex lookup table (fast, free, ~80% accuracy)
   "llm"     – GPT-4o-mini prompt (accurate, costs tokens, ~95%)
   "hybrid"  – rules first; LLM called only for ambiguous chunks (balanced)
+             Ambiguous chunks are processed *in parallel* (ThreadPoolExecutor)
+             so 40 LLM calls take ~1-2s instead of ~40s.
 
 Default is "hybrid".
 """
@@ -18,16 +20,21 @@ from __future__ import annotations
 
 import re
 import logging
+import concurrent.futures
 from typing import Optional, List
 from backend.ingestion.schemas import StructuredChunk
 
 logger = logging.getLogger(__name__)
 
+# Maximum number of concurrent LLM calls when tagging ambiguous chunks in
+# hybrid mode.  Keep below your API rate-limit (default: 10 concurrent).
+MAX_LLM_WORKERS = 10
+
+
 # ── Typing helpers ─────────────────────────────────────────────────────────────
 TagMode = str   # "rules" | "llm" | "hybrid"
 
 
-# ── Keyword rule table ─────────────────────────────────────────────────────────
 # Each rule: (compiled_regex, regulation_type, obligation_level)
 # Rules are evaluated in order; first match wins.
 _RULES: list[tuple[re.Pattern, str, str]] = [
@@ -249,7 +256,16 @@ def tag_chunks(
     document_tier: Optional[str] = None,
 ) -> List[StructuredChunk]:
     """
-    Tag a list of chunks. Returns the same list with AML metadata populated.
+    Tag a list of chunks with AML domain metadata.
+
+    In "hybrid" mode this is a two-pass process:
+      Pass 1 (instant): Apply keyword rules to every chunk.
+      Pass 2 (parallel): Collect all chunks that are still ambiguous and
+                         call the LLM for them concurrently via
+                         ThreadPoolExecutor (MAX_LLM_WORKERS workers).
+
+    This cuts tagging time from O(n_ambiguous × latency) to ~latency
+    regardless of document size.
 
     Args:
         chunks:         List of StructuredChunk to classify
@@ -259,14 +275,76 @@ def tag_chunks(
     Returns:
         Tagged chunk list (same objects, mutated in-place).
     """
-    tagged, skipped = 0, 0
-    for chunk in chunks:
-        tag_chunk(chunk, mode=mode, document_tier=document_tier)
-        if chunk.regulation_type:
-            tagged += 1
-        else:
-            skipped += 1
+    if not chunks:
+        return chunks
 
+    if mode == "rules":
+        # ── Pure rules path: no LLM, instant ──────────────────────────────────
+        for chunk in chunks:
+            reg_type, obl, jur, ent = _apply_rules(chunk.content)
+            chunk.regulation_type  = reg_type
+            chunk.obligation_level = obl
+            chunk.jurisdiction     = jur
+            chunk.entity_type      = ent
+            if document_tier is not None:
+                chunk.document_tier = document_tier
+
+    elif mode == "llm":
+        # ── Pure LLM path: all chunks in parallel ─────────────────────────────
+        def _tag_one_llm(chunk: StructuredChunk):
+            reg_type, obl, jur, ent = _llm_tag(chunk)
+            chunk.regulation_type  = reg_type
+            chunk.obligation_level = obl
+            chunk.jurisdiction     = jur
+            chunk.entity_type      = ent
+            if document_tier is not None:
+                chunk.document_tier = document_tier
+
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=MAX_LLM_WORKERS
+        ) as pool:
+            list(pool.map(_tag_one_llm, chunks))   # consume to raise exceptions
+
+    else:
+        # ── Hybrid path ───────────────────────────────────────────────────────
+        # Pass 1: Apply rules to EVERY chunk (zero latency)
+        ambiguous: List[StructuredChunk] = []
+        for chunk in chunks:
+            reg_type, obl, jur, ent = _apply_rules(chunk.content)
+            chunk.regulation_type  = reg_type
+            chunk.obligation_level = obl
+            chunk.jurisdiction     = jur
+            chunk.entity_type      = ent
+            if document_tier is not None:
+                chunk.document_tier = document_tier
+
+            if _is_ambiguous(reg_type, chunk.content):
+                ambiguous.append(chunk)
+
+        # Pass 2: Call LLM for ambiguous chunks — all in parallel
+        if ambiguous:
+            logger.debug(
+                f"[aml_tagger] hybrid: {len(ambiguous)} ambiguous chunks "
+                f"→ LLM (parallel, max_workers={MAX_LLM_WORKERS})"
+            )
+
+            def _resolve_ambiguous(chunk: StructuredChunk):
+                """LLM call for one ambiguous chunk; merges result in-place."""
+                llm_reg, llm_obl, llm_jur, llm_ent = _llm_tag(chunk)
+                # LLM result wins only for fields that rules left blank
+                chunk.regulation_type  = chunk.regulation_type  or llm_reg
+                chunk.obligation_level = chunk.obligation_level or llm_obl
+                chunk.jurisdiction     = chunk.jurisdiction     or llm_jur
+                chunk.entity_type      = chunk.entity_type     or llm_ent
+
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=MAX_LLM_WORKERS
+            ) as pool:
+                list(pool.map(_resolve_ambiguous, ambiguous))
+
+    # ── Summary log ───────────────────────────────────────────────────────────
+    tagged  = sum(1 for c in chunks if c.regulation_type)
+    skipped = len(chunks) - tagged
     logger.info(
         f"[aml_tagger] tagged={tagged} untagged={skipped} "
         f"(mode={mode}, tier={document_tier})"

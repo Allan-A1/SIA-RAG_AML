@@ -1,0 +1,2282 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SIA-RAG — Gap Analysis Dashboard</title>
+    <meta name="description"
+        content="Upload your bank's internal AML policy and get a detailed compliance gap analysis against PMLA, RBI, and FATF regulations." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" />
+    <!-- jsPDF for PDF export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <style>
+        /* ── Reset & base ─────────────────────────────────────────────────────── */
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        :root {
+            --bg: #060810;
+            --surface: #0d1120;
+            --card: #111827;
+            --border: rgba(255, 255, 255, 0.07);
+            --text: #e8edf5;
+            --muted: #6b7a99;
+            --accent1: #3b82f6;
+            --accent2: #10b981;
+            --missing: #ef4444;
+            --partial: #f59e0b;
+            --covered: #10b981;
+            --radius: 14px;
+            --font: 'Inter', system-ui, sans-serif;
+        }
+
+        html {
+            font-family: var(--font);
+            background: var(--bg);
+            color: var(--text);
+            font-size: 15px;
+        }
+
+        body {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        a {
+            color: var(--accent1);
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        button {
+            font-family: var(--font);
+            cursor: pointer;
+        }
+
+        /* ── Scrollbar ──────────────────────────────────────────────────────────── */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 99px;
+        }
+
+        /* ── Header ─────────────────────────────────────────────────────────────── */
+        .site-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 28px;
+            background: rgba(6, 8, 16, 0.85);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 700;
+            font-size: 1rem;
+        }
+
+        .brand-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: linear-gradient(135deg, #3b82f6, #10b981);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .header-nav {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+        }
+
+        .header-nav a {
+            color: var(--muted);
+            font-size: 0.85rem;
+            transition: color .2s;
+        }
+
+        .header-nav a:hover {
+            color: var(--text);
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.78rem;
+            color: var(--muted);
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 99px;
+            padding: 4px 12px;
+        }
+
+        .status-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #778;
+            transition: background .4s;
+        }
+
+        .status-dot.online {
+            background: var(--covered);
+            box-shadow: 0 0 6px var(--covered);
+        }
+
+        .status-dot.offline {
+            background: var(--missing);
+        }
+
+        /* ── Page wrapper ───────────────────────────────────────────────────────── */
+        .page {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 36px 20px 80px;
+            width: 100%;
+        }
+
+        /* ── Page hero ──────────────────────────────────────────────────────────── */
+        .hero {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .hero h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            background: linear-gradient(135deg, var(--accent1) 0%, var(--accent2) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero p {
+            margin-top: 8px;
+            color: var(--muted);
+            font-size: 0.95rem;
+            max-width: 560px;
+            margin-inline: auto;
+        }
+
+        /* ── Section card ───────────────────────────────────────────────────────── */
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 28px;
+            margin-bottom: 20px;
+        }
+
+        .card-title {
+            font-size: 0.78rem;
+            font-weight: 600;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin-bottom: 18px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .card-title svg {
+            opacity: .7;
+        }
+
+        /* ── Doc type selector ──────────────────────────────────────────────────────── */
+        .doc-type-row {
+            display: flex;
+            gap: 10px;
+            margin-top: 16px;
+            flex-wrap: wrap;
+        }
+
+        .doc-type-opt {
+            flex: 1;
+            min-width: 130px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 10px 14px;
+            cursor: pointer;
+            background: var(--surface);
+            transition: border-color .2s, background .2s;
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+        }
+
+        .doc-type-opt input[type=radio] {
+            display: none;
+        }
+
+        .doc-type-opt.selected {
+            border-color: var(--accent1);
+            background: rgba(124, 110, 255, 0.08);
+        }
+
+        .doc-type-opt .opt-icon {
+            font-size: 1.1rem;
+            flex-shrink: 0;
+            margin-top: 1px;
+        }
+
+        .doc-type-opt .opt-title {
+            font-size: 0.83rem;
+            font-weight: 600;
+        }
+
+        .doc-type-opt .opt-sub {
+            font-size: 0.72rem;
+            color: var(--muted);
+            margin-top: 2px;
+        }
+
+        .juris-row {
+            display: flex;
+            gap: 10px;
+            margin-top: 12px;
+            align-items: center;
+        }
+
+        .juris-row label {
+            font-size: 0.78rem;
+            color: var(--muted);
+            white-space: nowrap;
+        }
+
+        .juris-row select {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 9px;
+            padding: 8px 12px;
+            color: var(--text);
+            font-family: var(--font);
+            font-size: 0.83rem;
+            appearance: none;
+            -webkit-appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%237a859a' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            cursor: pointer;
+        }
+
+        /* ── Drop zone ──────────────────────────────────────────────────────────── */
+        .drop-zone {
+            border: 2px dashed rgba(124, 110, 255, 0.35);
+            border-radius: 12px;
+            padding: 48px 28px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color .2s, background .2s;
+            background: rgba(124, 110, 255, 0.03);
+            position: relative;
+        }
+
+        .drop-zone:hover,
+        .drop-zone.drag-over {
+            border-color: var(--accent1);
+            background: rgba(124, 110, 255, 0.08);
+
+            /* ── Drop zone ──────────────────────────────────────────────────────────────── */
+            .drop-zone {
+                border: 2px dashed rgba(124, 110, 255, 0.35);
+                border-radius: 12px;
+                padding: 48px 28px;
+                text-align: center;
+                cursor: pointer;
+                transition: border-color .2s, background .2s;
+                background: rgba(124, 110, 255, 0.03);
+                position: relative;
+            }
+        }
+
+        .drop-zone:hover,
+        .drop-zone.drag-over {
+            border-color: var(--accent1);
+            background: rgba(124, 110, 255, 0.08);
+        }
+
+        .drop-zone input[type=file] {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        .drop-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            background: linear-gradient(135deg, var(--accent1), var(--accent2));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 14px;
+        }
+
+        .drop-label {
+            font-size: 0.95rem;
+            font-weight: 500;
+        }
+
+        .drop-sub {
+            font-size: 0.8rem;
+            color: var(--muted);
+            margin-top: 4px;
+        }
+
+        .drop-link {
+            color: var(--accent1);
+            text-decoration: underline;
+            cursor: pointer;
+        }
+
+        /* ── Upload progress ────────────────────────────────────────────────────── */
+        .upload-progress {
+            display: none;
+            margin-top: 16px;
+        }
+
+        .progress-bar-wrap {
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 99px;
+            height: 6px;
+            overflow: hidden;
+            margin-bottom: 8px;
+        }
+
+        .progress-bar {
+            height: 100%;
+            border-radius: 99px;
+            background: linear-gradient(90deg, var(--accent1), var(--accent2));
+            width: 0%;
+            transition: width .3s ease;
+        }
+
+        .progress-label {
+            font-size: 0.8rem;
+            color: var(--muted);
+        }
+
+        /* ── File queue list ─────────────────────────────────────────────────────── */
+        .file-queue {
+            display: none;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 16px;
+        }
+
+        .file-queue-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 0.78rem;
+            color: var(--muted);
+            margin-bottom: 2px;
+        }
+
+        .add-more-btn {
+            background: none;
+            border: none;
+            color: var(--accent2);
+            font-size: 0.78rem;
+            cursor: pointer;
+            padding: 2px 6px;
+            border-radius: 6px;
+            transition: background .15s;
+        }
+
+        .add-more-btn:hover {
+            background: rgba(79, 143, 255, 0.12);
+        }
+
+        .reset-queue-btn {
+            background: none;
+            border: none;
+            color: var(--muted);
+            font-size: 0.78rem;
+            cursor: pointer;
+            padding: 2px 6px;
+            border-radius: 6px;
+            transition: background .15s;
+        }
+
+        .reset-queue-btn:hover {
+            background: rgba(255, 255, 255, 0.07);
+            color: var(--text);
+        }
+
+        .file-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 9px 14px;
+            font-size: 0.84rem;
+            transition: border-color .2s;
+        }
+
+        .file-item.uploading {
+            border-color: rgba(59, 130, 246, 0.3);
+        }
+
+        .file-item.done {
+            border-color: rgba(16, 185, 129, 0.3);
+        }
+
+        .file-item.error {
+            border-color: rgba(239, 68, 68, 0.3);
+        }
+
+        .file-item-icon {
+            font-size: 1rem;
+            flex-shrink: 0;
+            width: 22px;
+            text-align: center;
+        }
+
+        .file-item-name {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            color: var(--text);
+        }
+
+        .file-item-badge {
+            font-size: 0.7rem;
+            border-radius: 6px;
+            padding: 2px 8px;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+
+        .file-item-badge.uploading {
+            background: rgba(59, 130, 246, 0.15);
+            color: var(--accent1);
+        }
+
+        .file-item-badge.done {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--covered);
+        }
+
+        .file-item-badge.error {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--missing);
+        }
+
+        /* ── Dual upload grid ────────────────────────────────────────────────────── */
+        .upload-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 0;
+        }
+
+        @media (max-width: 720px) {
+            .upload-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .upload-zone-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .upload-zone-card.policy-card {
+            border-color: rgba(16, 185, 129, 0.25);
+            background: rgba(16, 185, 129, 0.04);
+        }
+
+        .upload-zone-card.policy-card.ready {
+            border-color: rgba(16, 185, 129, 0.5);
+            box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.15);
+        }
+
+        .upload-zone-title {
+            font-size: 0.88rem;
+            font-weight: 600;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .upload-zone-sub {
+            font-size: 0.75rem;
+            color: var(--muted);
+            margin-top: -6px;
+        }
+
+        .uz-badge {
+            font-size: 0.65rem;
+            font-weight: 700;
+            padding: 2px 7px;
+            border-radius: 6px;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+        }
+
+        .uz-badge.reg {
+            background: rgba(59, 130, 246, .15);
+            color: var(--accent1);
+        }
+
+        .uz-badge.pol {
+            background: rgba(16, 185, 129, .15);
+            color: var(--covered);
+        }
+
+        .uz-ready-chip {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.78rem;
+            color: var(--covered);
+            background: rgba(16, 185, 129, .1);
+            border: 1px solid rgba(16, 185, 129, .25);
+            border-radius: 8px;
+            padding: 6px 10px;
+        }
+
+        .file-item-type {
+            font-size: 0.69rem;
+            color: var(--muted);
+            flex-shrink: 0;
+        }
+
+        /* ── Filter grid ────────────────────────────────────────────────────────── */
+        .filter-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 14px;
+            margin-top: 4px;
+        }
+
+        .filter-group label {
+            display: block;
+            font-size: 0.78rem;
+            color: var(--muted);
+            margin-bottom: 6px;
+            font-weight: 500;
+        }
+
+        .filter-group select,
+        .filter-group input[type=date] {
+            width: 100%;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 9px;
+            padding: 9px 12px;
+            color: var(--text);
+            font-family: var(--font);
+            font-size: 0.88rem;
+            appearance: none;
+            -webkit-appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%237a859a' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            cursor: pointer;
+            transition: border-color .2s;
+        }
+
+        .filter-group select:focus,
+        .filter-group input[type=date]:focus {
+            outline: none;
+            border-color: var(--accent1);
+        }
+
+        .filter-group input[type=date] {
+            background-image: none;
+        }
+
+        .filter-group input[type=number] {
+            width: 100%;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 9px;
+            padding: 9px 12px;
+            color: var(--text);
+            font-family: var(--font);
+            font-size: 0.88rem;
+        }
+
+        .filter-group input[type=number]:focus {
+            outline: none;
+            border-color: var(--accent1);
+        }
+
+        /* ── Run button ─────────────────────────────────────────────────────────── */
+        .run-btn {
+            margin-top: 22px;
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, var(--accent1), var(--accent2));
+            border: none;
+            border-radius: 12px;
+            color: #fff;
+            font-size: 1rem;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            transition: opacity .2s, transform .15s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .run-btn:hover:not(:disabled) {
+            opacity: .88;
+            transform: translateY(-1px);
+        }
+
+        .run-btn:disabled {
+            opacity: .4;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* ── Stepper ────────────────────────────────────────────────────────────── */
+        #stepper-section {
+            display: none;
+        }
+
+        .stepper {
+            display: flex;
+            align-items: flex-start;
+            gap: 0;
+            padding: 8px 0;
+            overflow-x: auto;
+        }
+
+        .step {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            flex: 1;
+            position: relative;
+        }
+
+        .step:not(:last-child)::after {
+            content: '';
+            position: absolute;
+            top: 17px;
+            left: 50%;
+            width: 100%;
+            height: 2px;
+            background: var(--border);
+            z-index: 0;
+        }
+
+        .step.done::after,
+        .step.active::after {
+            background: linear-gradient(90deg, var(--accent1), var(--accent2));
+        }
+
+        .step-ball {
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            z-index: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--surface);
+            border: 2px solid var(--border);
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--muted);
+            transition: all .4s;
+        }
+
+        .step.active .step-ball {
+            background: linear-gradient(135deg, var(--accent1), var(--accent2));
+            border-color: transparent;
+            color: #fff;
+            box-shadow: 0 0 18px rgba(124, 110, 255, .5);
+            animation: pulse 1.2s infinite;
+        }
+
+        .step.done .step-ball {
+            background: var(--covered);
+            border-color: transparent;
+            color: #fff;
+        }
+
+        .step-label {
+            font-size: 0.72rem;
+            color: var(--muted);
+            margin-top: 8px;
+            text-align: center;
+            max-width: 80px;
+            line-height: 1.35;
+        }
+
+        .step.active .step-label {
+            color: var(--accent1);
+        }
+
+        .step.done .step-label {
+            color: var(--covered);
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                box-shadow: 0 0 14px rgba(124, 110, 255, .4);
+            }
+
+            50% {
+                box-shadow: 0 0 28px rgba(124, 110, 255, .9);
+            }
+        }
+
+        .step-status-text {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 0.88rem;
+            color: var(--muted);
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            border: 2px solid rgba(124, 110, 255, 0.3);
+            border-top-color: var(--accent1);
+            animation: spin .8s linear infinite;
+            vertical-align: middle;
+            margin-right: 6px;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* ── Report ─────────────────────────────────────────────────────────────── */
+        #report-section {
+            display: none;
+        }
+
+        /* Score gauge */
+        .gauge-row {
+            display: flex;
+            align-items: center;
+            gap: 36px;
+            flex-wrap: wrap;
+        }
+
+        .gauge-wrap {
+            position: relative;
+            flex-shrink: 0;
+        }
+
+        .gauge-ring {
+            width: 130px;
+            height: 130px;
+            border-radius: 50%;
+            background: conic-gradient(var(--accent1) 0%, var(--accent2) 0%, rgba(255, 255, 255, 0.06) 0%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 1s ease;
+        }
+
+        .gauge-inner {
+            width: 90px;
+            height: 90px;
+            border-radius: 50%;
+            background: var(--card);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .gauge-score {
+            font-size: 1.55rem;
+            font-weight: 700;
+            line-height: 1;
+        }
+
+        .gauge-label {
+            font-size: 0.65rem;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: .07em;
+            margin-top: 2px;
+        }
+
+        /* Summary stat pills */
+        .stat-pills {
+            display: flex;
+            gap: 14px;
+            flex-wrap: wrap;
+        }
+
+        .stat-pill {
+            flex: 1;
+            min-width: 100px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 14px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .stat-pill .sp-count {
+            font-size: 1.75rem;
+            font-weight: 700;
+            line-height: 1;
+        }
+
+        .stat-pill .sp-label {
+            font-size: 0.75rem;
+            color: var(--muted);
+        }
+
+        .stat-pill.missing .sp-count {
+            color: var(--missing);
+        }
+
+        .stat-pill.partial .sp-count {
+            color: var(--partial);
+        }
+
+        .stat-pill.covered .sp-count {
+            color: var(--covered);
+        }
+
+        /* Meta bar */
+        .meta-bar {
+            display: flex;
+            gap: 18px;
+            flex-wrap: wrap;
+            margin-top: 18px;
+            padding: 12px 16px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+        }
+
+        .meta-item {
+            font-size: 0.78rem;
+            color: var(--muted);
+        }
+
+        .meta-item strong {
+            color: var(--text);
+            font-weight: 500;
+        }
+
+        /* Tabs */
+        .tab-bar {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0;
+        }
+
+        .tab-btn {
+            padding: 8px 18px;
+            border: none;
+            background: none;
+            color: var(--muted);
+            font-size: 0.88rem;
+            font-weight: 500;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -1px;
+            transition: color .2s, border-color .2s;
+        }
+
+        .tab-btn:hover {
+            color: var(--text);
+        }
+
+        .tab-btn.active {
+            color: var(--text);
+            border-bottom-color: var(--accent1);
+        }
+
+        .tab-btn .tab-count {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 20px;
+            border-radius: 99px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            margin-left: 6px;
+        }
+
+        .tab-btn[data-tab="missing"] .tab-count {
+            background: rgba(255, 82, 82, 0.18);
+            color: var(--missing);
+        }
+
+        .tab-btn[data-tab="partial"] .tab-count {
+            background: rgba(245, 166, 35, 0.18);
+            color: var(--partial);
+        }
+
+        .tab-btn[data-tab="covered"] .tab-count {
+            background: rgba(39, 200, 122, 0.18);
+            color: var(--covered);
+        }
+
+        .tab-panel {
+            display: none;
+        }
+
+        .tab-panel.active {
+            display: block;
+        }
+
+        /* Gap card */
+        .gap-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 18px 20px;
+            margin-bottom: 12px;
+            transition: border-color .2s;
+        }
+
+        .gap-card:hover {
+            border-color: rgba(124, 110, 255, 0.3);
+        }
+
+        .gap-card-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .gap-badges {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .badge {
+            display: inline-block;
+            border-radius: 6px;
+            padding: 3px 9px;
+            font-size: 0.71rem;
+            font-weight: 600;
+            letter-spacing: .04em;
+        }
+
+        .badge.missing {
+            background: rgba(255, 82, 82, 0.15);
+            color: var(--missing);
+            border: 1px solid rgba(255, 82, 82, 0.2);
+        }
+
+        .badge.partial {
+            background: rgba(245, 166, 35, 0.15);
+            color: var(--partial);
+            border: 1px solid rgba(245, 166, 35, 0.2);
+        }
+
+        .badge.covered {
+            background: rgba(39, 200, 122, 0.15);
+            color: var(--covered);
+            border: 1px solid rgba(39, 200, 122, 0.2);
+        }
+
+        .badge.critical {
+            background: rgba(255, 82, 82, 0.08);
+            color: #ff8888;
+            border: 1px solid rgba(255, 82, 82, 0.15);
+        }
+
+        .badge.moderate {
+            background: rgba(245, 166, 35, 0.08);
+            color: #ffc46e;
+            border: 1px solid rgba(245, 166, 35, 0.15);
+        }
+
+        .badge.info {
+            background: rgba(79, 143, 255, 0.08);
+            color: #80b4ff;
+            border: 1px solid rgba(79, 143, 255, 0.15);
+        }
+
+        .badge.juris {
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--muted);
+            border: 1px solid var(--border);
+        }
+
+        .confidence-pill {
+            font-size: 0.72rem;
+            color: var(--muted);
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 99px;
+            padding: 2px 10px;
+            flex-shrink: 0;
+            white-space: nowrap;
+        }
+
+        .gap-source {
+            font-size: 0.8rem;
+            color: var(--muted);
+            font-weight: 500;
+        }
+
+        .gap-text {
+            font-size: 0.88rem;
+            line-height: 1.6;
+            color: var(--text);
+            margin: 10px 0;
+        }
+
+        .gap-text.truncated {
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .gap-detail {
+            border-top: 1px solid var(--border);
+            margin-top: 12px;
+            padding-top: 12px;
+        }
+
+        .detail-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+            font-size: 0.84rem;
+        }
+
+        .detail-icon {
+            flex-shrink: 0;
+            margin-top: 1px;
+        }
+
+        .detail-label {
+            font-weight: 600;
+            color: var(--muted);
+            white-space: nowrap;
+        }
+
+        .detail-val {
+            color: var(--text);
+        }
+
+        .remedy-box {
+            background: rgba(124, 110, 255, 0.07);
+            border: 1px solid rgba(124, 110, 255, 0.18);
+            border-radius: 8px;
+            padding: 10px 14px;
+            font-size: 0.84rem;
+            color: #b0b8d0;
+            line-height: 1.55;
+            margin-top: 8px;
+        }
+
+        .graph-path {
+            font-family: monospace;
+            font-size: 0.76rem;
+            color: var(--muted);
+            background: rgba(255, 255, 255, 0.04);
+            border-radius: 6px;
+            padding: 4px 8px;
+            margin-top: 6px;
+            display: inline-block;
+        }
+
+        .show-more-btn {
+            font-size: 0.78rem;
+            color: var(--accent2);
+            background: none;
+            border: none;
+            padding: 0;
+            margin-top: 4px;
+            cursor: pointer;
+        }
+
+        /* Empty state */
+        .empty-tab {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--muted);
+            font-size: 0.88rem;
+        }
+
+        /* Download button */
+        .download-btn {
+            margin-top: 22px;
+            padding: 11px 22px;
+            background: rgba(124, 110, 255, 0.12);
+            border: 1px solid rgba(124, 110, 255, 0.3);
+            border-radius: 10px;
+            color: var(--accent1);
+            font-weight: 600;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: fit-content;
+            transition: background .2s;
+        }
+
+        .download-btn:hover {
+            background: rgba(124, 110, 255, 0.22);
+        }
+
+        /* ── Toast ──────────────────────────────────────────────────────────────── */
+        #toast {
+            position: fixed;
+            bottom: 28px;
+            left: 50%;
+            transform: translateX(-50%) translateY(20px);
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 12px 20px;
+            font-size: 0.88rem;
+            opacity: 0;
+            pointer-events: none;
+            transition: all .3s;
+            white-space: nowrap;
+            z-index: 999;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, .4);
+        }
+
+        #toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        #toast.error {
+            border-color: rgba(255, 82, 82, 0.4);
+            color: var(--missing);
+        }
+
+        /* ── Responsive ─────────────────────────────────────────────────────────── */
+        @media (max-width: 580px) {
+            .hero h1 {
+                font-size: 1.5rem;
+            }
+
+            .gauge-row {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .stepper {
+                gap: 0;
+            }
+
+            .header-nav {
+                display: none;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- ── HEADER ────────────────────────────────────────────────────────────────── -->
+    <header class="site-header">
+        <div class="brand">
+            <div class="brand-icon">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                    <path d="M2 17l10 5 10-5" />
+                    <path d="M2 12l10 5 10-5" />
+                </svg>
+            </div>
+            SIA-RAG
+        </div>
+        <nav class="header-nav">
+            <a href="landing.html">← Home</a>
+            <a href="index.html">Chat UI</a>
+            <a href="visualization.html">Vector Space</a>
+        </nav>
+        <div class="status-badge">
+            <div class="status-dot" id="status-dot"></div>
+            <span id="status-text">Connecting…</span>
+        </div>
+    </header>
+
+    <!-- ── PAGE ──────────────────────────────────────────────────────────────────── -->
+    <div class="page">
+
+        <!-- Hero -->
+        <div class="hero">
+            <h1>AML Compliance Gap Analysis</h1>
+            <p>Upload your bank's internal AML policy. The engine compares it against indexed regulatory obligations and
+                pinpoints every gap, partial coverage, and remedy.</p>
+        </div>
+
+        <!-- ── PHASE 1a: Upload ──────────────────────────────────────────────────── -->
+        <div class="card" id="upload-card">
+            <div class="card-title">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="17 8 12 3 7 8" />
+                    <line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
+                Step 1 — Upload Documents
+            </div>
+
+            <div class="upload-grid">
+
+                <!-- ── LEFT: Regulatory PDFs ── -->
+                <div class="upload-zone-card" id="reg-zone-card">
+                    <div>
+                        <div class="upload-zone-title">
+                            📜 Regulatory PDFs
+                            <span class="uz-badge reg">PMLA · RBI · FATF</span>
+                        </div>
+                        <div class="upload-zone-sub">Upload one or many regulatory documents. Already-ingested docs
+                            persist across page refreshes.</div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px">
+                        <label for="upload-jurisdiction"
+                            style="font-size:.78rem;color:var(--muted);white-space:nowrap">Jurisdiction:</label>
+                        <select id="upload-jurisdiction"
+                            style="flex:1;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);font-family:var(--font);font-size:.82rem;appearance:none;cursor:pointer">
+                            <option value="">Auto-detect</option>
+                            <option value="RBI">RBI</option>
+                            <option value="PMLA">PMLA / FIU-IND</option>
+                            <option value="FATF">FATF</option>
+                            <option value="SEBI">SEBI</option>
+                            <option value="IRDAI">IRDAI</option>
+                            <option value="EU">EU</option>
+                            <option value="USA">USA / FinCEN</option>
+                        </select>
+                    </div>
+                    <div class="drop-zone" id="reg-drop-zone">
+                        <input type="file" id="reg-file-input" accept=".pdf" multiple />
+                        <div class="drop-icon">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"
+                                stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                <polyline points="14 2 14 8 20 8" />
+                                <line x1="12" y1="18" x2="12" y2="12" />
+                                <line x1="9" y1="15" x2="15" y2="15" />
+                            </svg>
+                        </div>
+                        <div class="drop-label">Drop regulatory PDFs here</div>
+                        <div class="drop-sub">or <span class="drop-link">browse — multiple allowed</span></div>
+                    </div>
+                    <div class="upload-progress" id="reg-upload-progress">
+                        <div class="progress-bar-wrap">
+                            <div class="progress-bar" id="reg-progress-bar"></div>
+                        </div>
+                        <div class="progress-label" id="reg-progress-label">Uploading…</div>
+                    </div>
+                    <div class="file-queue" id="reg-file-queue">
+                        <div class="file-queue-header">
+                            <span id="reg-queue-summary">0 files</span>
+                            <span style="display:flex;gap:8px">
+                                <button class="add-more-btn" id="reg-add-more">+ Add more</button>
+                                <button class="reset-queue-btn" id="reg-reset">✕ Clear</button>
+                            </span>
+                        </div>
+                        <div id="reg-file-list"></div>
+                    </div>
+                </div>
+
+                <!-- ── RIGHT: Internal Policy PDF ── -->
+                <div class="upload-zone-card policy-card" id="pol-zone-card">
+                    <div>
+                        <div class="upload-zone-title">
+                            🏦 Internal Policy PDF
+                            <span class="uz-badge pol">REQUIRED</span>
+                        </div>
+                        <div class="upload-zone-sub">Upload your bank's AML policy. One policy doc at a time. Persists
+                            across page refreshes.</div>
+                    </div>
+                    <div class="uz-ready-chip" id="pol-ready-chip" style="display:none">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                        <span id="pol-ready-name">Policy ready</span>
+                        <button id="pol-change-btn"
+                            style="margin-left:auto;background:none;border:none;color:var(--muted);font-size:.75rem;cursor:pointer">Change</button>
+                    </div>
+                    <div class="drop-zone" id="pol-drop-zone">
+                        <input type="file" id="pol-file-input" accept=".pdf" />
+                        <div class="drop-icon">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"
+                                stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                <polyline points="14 2 14 8 20 8" />
+                                <line x1="12" y1="18" x2="12" y2="12" />
+                                <line x1="9" y1="15" x2="15" y2="15" />
+                            </svg>
+                        </div>
+                        <div class="drop-label">Drop your policy PDF here</div>
+                        <div class="drop-sub">or <span class="drop-link">browse — single file</span></div>
+                    </div>
+                    <div class="upload-progress" id="pol-upload-progress">
+                        <div class="progress-bar-wrap">
+                            <div class="progress-bar" id="pol-progress-bar"></div>
+                        </div>
+                        <div class="progress-label" id="pol-progress-label">Uploading…</div>
+                    </div>
+                    <div class="file-queue" id="pol-file-queue">
+                        <div class="file-queue-header"><span id="pol-queue-summary"></span></div>
+                        <div id="pol-file-list"></div>
+                    </div>
+                </div>
+
+            </div><!-- /.upload-grid -->
+        </div>
+
+        <!-- ── PHASE 1b: Configure ────────────────────────────────────────────────── -->
+        <div class="card" id="config-card">
+            <div class="card-title">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3" />
+                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+                    <path d="M4.93 4.93a10 10 0 0 0 0 14.14" />
+                </svg>
+                Step 2 — Configure Analysis
+            </div>
+
+            <div class="filter-grid">
+                <div class="filter-group">
+                    <label for="jurisdiction-filter">Jurisdiction</label>
+                    <select id="jurisdiction-filter">
+                        <option value="">All Jurisdictions</option>
+                        <option value="RBI">RBI</option>
+                        <option value="PMLA">PMLA / FIU-IND</option>
+                        <option value="FATF">FATF</option>
+                        <option value="SEBI">SEBI</option>
+                        <option value="IRDAI">IRDAI</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="regulation-type-filter">Regulation Type</label>
+                    <select id="regulation-type-filter">
+                        <option value="">All Types</option>
+                        <option value="KYC">KYC</option>
+                        <option value="STR">STR — Suspicious Transaction</option>
+                        <option value="CTR">CTR — Cash Transaction</option>
+                        <option value="PEP">PEP — Politically Exposed</option>
+                        <option value="EDD">EDD — Enhanced Due Diligence</option>
+                        <option value="CDD">CDD — Customer Due Diligence</option>
+                        <option value="TM">Transaction Monitoring</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="as-of-date">As-of Date</label>
+                    <input type="date" id="as-of-date" />
+                </div>
+                <div class="filter-group">
+                    <label for="max-obligations">Max Obligations</label>
+                    <input type="number" id="max-obligations" value="75" min="10" max="300" />
+                </div>
+            </div>
+
+            <button class="run-btn" id="run-btn" disabled>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="5 3 19 12 5 21 5 3" />
+                </svg>
+                Run Gap Analysis
+            </button>
+        </div>
+
+        <!-- ── PHASE 2: Stepper ───────────────────────────────────────────────────── -->
+        <div class="card" id="stepper-section">
+            <div class="card-title">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <polyline points="12 6 12 12 16 14" />
+                </svg>
+                Analysis in Progress
+            </div>
+
+            <div class="stepper" id="stepper">
+                <div class="step" id="step-0">
+                    <div class="step-ball">1</div>
+                    <div class="step-label">Uploading Policy</div>
+                </div>
+                <div class="step" id="step-1">
+                    <div class="step-ball">2</div>
+                    <div class="step-label">Stage 1 Pre-filter</div>
+                </div>
+                <div class="step" id="step-2">
+                    <div class="step-ball">3</div>
+                    <div class="step-label">LLM Judging</div>
+                </div>
+                <div class="step" id="step-3">
+                    <div class="step-ball">4</div>
+                    <div class="step-label">Evidence Guard</div>
+                </div>
+                <div class="step" id="step-4">
+                    <div class="step-ball">5</div>
+                    <div class="step-label">Building Report</div>
+                </div>
+            </div>
+
+            <div class="step-status-text" id="step-status">
+                <span class="spinner"></span><span id="step-status-msg">Initialising…</span>
+            </div>
+        </div>
+
+        <!-- ── PHASE 3: Report ───────────────────────────────────────────────────── -->
+        <div id="report-section">
+
+            <!-- Score + stats -->
+            <div class="card">
+                <div class="card-title">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                    </svg>
+                    Compliance Coverage Report
+                    <span
+                        style="margin-left:auto;font-size:0.75rem;font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;"
+                        id="report-date"></span>
+                </div>
+
+                <div class="gauge-row">
+                    <div class="gauge-wrap">
+                        <div class="gauge-ring" id="gauge-ring">
+                            <div class="gauge-inner">
+                                <span class="gauge-score" id="gauge-score">—</span>
+                                <span class="gauge-label">Coverage</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="flex:1">
+                        <div class="stat-pills">
+                            <div class="stat-pill missing">
+                                <span class="sp-count" id="count-missing">—</span>
+                                <span class="sp-label">🔴 Missing</span>
+                            </div>
+                            <div class="stat-pill partial">
+                                <span class="sp-count" id="count-partial">—</span>
+                                <span class="sp-label">🟡 Partial</span>
+                            </div>
+                            <div class="stat-pill covered">
+                                <span class="sp-count" id="count-covered">—</span>
+                                <span class="sp-label">🟢 Covered</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="meta-bar" id="meta-bar">
+                    <div class="meta-item">Obligations analysed: <strong id="meta-total">—</strong></div>
+                    <div class="meta-item">Avg confidence: <strong id="meta-conf">—</strong></div>
+                    <div class="meta-item">Hallucination rejections: <strong id="meta-hall">—</strong></div>
+                    <div class="meta-item">Duration: <strong id="meta-lat">—</strong></div>
+                </div>
+            </div>
+
+            <!-- Gap cards -->
+            <div class="card">
+                <div class="tab-bar">
+                    <button class="tab-btn active" data-tab="missing" id="tab-missing">
+                        🔴 Missing <span class="tab-count" id="tc-missing">0</span>
+                    </button>
+                    <button class="tab-btn" data-tab="partial" id="tab-partial">
+                        🟡 Partial <span class="tab-count" id="tc-partial">0</span>
+                    </button>
+                    <button class="tab-btn" data-tab="covered" id="tab-covered">
+                        🟢 Covered <span class="tab-count" id="tc-covered">0</span>
+                    </button>
+                </div>
+
+                <div class="tab-panel active" id="panel-missing"></div>
+                <div class="tab-panel" id="panel-partial"></div>
+                <div class="tab-panel" id="panel-covered"></div>
+            </div>
+
+            <div style="display:flex;gap:12px;flex-wrap:wrap">
+                <button class="download-btn" id="download-btn">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="7 10 12 15 17 10" />
+                        <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                    Download Markdown
+                </button>
+                <button class="download-btn" id="download-pdf-btn"
+                    style="background:linear-gradient(135deg,#dc2626,#b91c1c);border-color:#dc2626">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <polyline points="14 2 14 8 20 8" />
+                        <line x1="12" y1="18" x2="12" y2="12" />
+                        <line x1="9" y1="15" x2="15" y2="15" />
+                    </svg>
+                    Download PDF Report
+                </button>
+            </div>
+        </div>
+
+    </div><!-- /.page -->
+
+    <!-- ── Toast ─────────────────────────────────────────────────────────────────── -->
+    <div id="toast"></div>
+
+    <!-- ── SCRIPT ────────────────────────────────────────────────────────────────── -->
+    <script>
+        (function () {
+            'use strict';
+
+            const API = 'http://localhost:8000';
+            const LS_REG = 'sia_gap_reg_queue';   // localStorage keys
+            const LS_POL = 'sia_gap_pol_docid';
+            const LS_POL_NAME = 'sia_gap_pol_name';
+
+            // ── State ──────────────────────────────────────────────────────────────────
+            // regQueue: [{name, docId, status:'done'|'error', errMsg}]  (persisted)
+            // policyDocId / policyName stored directly in localStorage
+            let regQueue = [];
+            let policyDocId = null;
+            let policyName = null;
+            let isRegUploading = false;
+            let isPolUploading = false;
+            let currentReportId = null;
+            let lastReportData = null;   // cached for PDF export
+
+
+            // ── Elements ───────────────────────────────────────────────────────────────
+            const $ = id => document.getElementById(id);
+            const runBtn = $('run-btn');
+            const stepperSec = $('stepper-section');
+            const reportSec = $('report-section');
+            const statusDot = $('status-dot');
+            const statusTxt = $('status-text');
+
+            // Regulatory zone
+            const regDropZone = $('reg-drop-zone');
+            const regFileInput = $('reg-file-input');
+            const regProg = $('reg-upload-progress');
+            const regProgBar = $('reg-progress-bar');
+            const regProgLbl = $('reg-progress-label');
+            const regQueueEl = $('reg-file-queue');
+            const regListEl = $('reg-file-list');
+            const regSummaryEl = $('reg-queue-summary');
+
+            // Policy zone
+            const polDropZone = $('pol-drop-zone');
+            const polFileInput = $('pol-file-input');
+            const polProg = $('pol-upload-progress');
+            const polProgBar = $('pol-progress-bar');
+            const polProgLbl = $('pol-progress-label');
+            const polQueueEl = $('pol-file-queue');
+            const polListEl = $('pol-file-list');
+            const polSummaryEl = $('pol-queue-summary');
+            const polReadyChip = $('pol-ready-chip');
+            const polReadyName = $('pol-ready-name');
+            const polZoneCard = $('pol-zone-card');
+
+            // ── localStorage helpers ───────────────────────────────────────────────────
+            function saveRegQueue() {
+                // Only persist done entries (already ingested)
+                const persisted = regQueue
+                    .filter(e => e.status === 'done')
+                    .map(e => ({ name: e.name, docId: e.docId }));
+                localStorage.setItem(LS_REG, JSON.stringify(persisted));
+            }
+            function loadRegQueue() {
+                try {
+                    return JSON.parse(localStorage.getItem(LS_REG) || '[]')
+                        .map(e => ({ ...e, status: 'done', errMsg: '' }));
+                } catch { return []; }
+            }
+            function savePolicyDoc(docId, name) {
+                localStorage.setItem(LS_POL, docId || '');
+                localStorage.setItem(LS_POL_NAME, name || '');
+            }
+            function clearPolicyDoc() {
+                localStorage.removeItem(LS_POL);
+                localStorage.removeItem(LS_POL_NAME);
+            }
+
+            // ── Restore state on load ──────────────────────────────────────────────────
+            function restoreState() {
+                // Regulatory docs
+                regQueue = loadRegQueue();
+                if (regQueue.length > 0) {
+                    regDropZone.style.display = 'none';
+                    regQueueEl.style.display = 'flex';
+                    renderRegList();
+                }
+
+                // Policy doc
+                const savedPolId = localStorage.getItem(LS_POL) || '';
+                const savedPolName = localStorage.getItem(LS_POL_NAME) || '';
+                if (savedPolId) {
+                    policyDocId = savedPolId;
+                    policyName = savedPolName;
+                    showPolicyReady();
+                }
+
+                refreshRunBtn();
+            }
+
+            // ── API health check ───────────────────────────────────────────────────────
+            async function checkHealth() {
+                try {
+                    const r = await fetch(`${API}/documents/`, { signal: AbortSignal.timeout(4000) });
+                    if (r.ok) { statusDot.className = 'status-dot online'; statusTxt.textContent = 'Backend Online'; }
+                    else throw new Error();
+                } catch {
+                    statusDot.className = 'status-dot offline'; statusTxt.textContent = 'Backend Offline';
+                }
+            }
+
+            // ── Toast ──────────────────────────────────────────────────────────────────
+            function toast(msg, isError = false) {
+                const el = $('toast');
+                el.textContent = msg;
+                el.className = 'show' + (isError ? ' error' : '');
+                setTimeout(() => el.className = '', 3200);
+            }
+
+            // ── Regulatory zone: drag & drop + file input ──────────────────────────────
+            regDropZone.addEventListener('dragover', e => { e.preventDefault(); regDropZone.classList.add('drag-over'); });
+            regDropZone.addEventListener('dragleave', () => regDropZone.classList.remove('drag-over'));
+            regDropZone.addEventListener('drop', e => {
+                e.preventDefault(); regDropZone.classList.remove('drag-over');
+                const files = Array.from(e.dataTransfer.files).filter(f => f.name.endsWith('.pdf'));
+                if (files.length) enqueueRegFiles(files);
+                else toast('Only PDF files are supported', true);
+            });
+            regDropZone.addEventListener('click', () => regFileInput.click());
+            regFileInput.addEventListener('change', () => {
+                const files = Array.from(regFileInput.files).filter(f => f.name.endsWith('.pdf'));
+                if (files.length) enqueueRegFiles(files);
+                regFileInput.value = '';
+            });
+            $('reg-add-more').addEventListener('click', () => regFileInput.click());
+            $('reg-reset').addEventListener('click', () => {
+                regQueue = [];
+                saveRegQueue();
+                regDropZone.style.display = 'block';
+                regQueueEl.style.display = 'none';
+                regProg.style.display = 'none';
+                refreshRunBtn();
+            });
+
+            function enqueueRegFiles(files) {
+                const juris = $('upload-jurisdiction').value;
+                files.forEach(f => {
+                    // Skip duplicates already in queue
+                    if (!regQueue.find(e => e.name === f.name && e.status === 'done')) {
+                        regQueue.push({ name: f.name, file: f, docId: null, status: 'pending', juris, errMsg: '' });
+                    }
+                });
+                regDropZone.style.display = 'none';
+                regQueueEl.style.display = 'flex';
+                renderRegList();
+                if (!isRegUploading) processRegQueue();
+            }
+
+            async function processRegQueue() {
+                isRegUploading = true;
+                const pending = regQueue.filter(e => e.status === 'pending');
+                for (const entry of pending) {
+                    entry.status = 'uploading';
+                    renderRegList();
+                    regProg.style.display = 'block';
+                    regProgBar.style.width = '0%';
+                    regProgLbl.textContent = `Uploading: ${entry.name}…`;
+                    animateProgress(regProgBar, regProgLbl, 0, 85, 1200);
+
+                    const fd = new FormData();
+                    fd.append('file', entry.file);
+                    fd.append('doc_type', 'regulatory');
+                    if (entry.juris) fd.append('jurisdiction', entry.juris);
+
+                    try {
+                        const r = await fetch(`${API}/upload/`, { method: 'POST', body: fd });
+                        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+                        const data = await r.json();
+                        entry.status = 'done';
+                        entry.docId = data.doc_id;
+                        regProgBar.style.width = '100%';
+                        saveRegQueue();
+                        toast(`✅ ${entry.name} ingested as regulatory`);
+                    } catch (e) {
+                        entry.status = 'error';
+                        entry.errMsg = e.message;
+                        toast(`❌ ${entry.name}: ${e.message}`, true);
+                    }
+                    renderRegList();
+                    await delay(300);
+                }
+                regProg.style.display = 'none';
+                isRegUploading = false;
+            }
+
+            function renderRegList() {
+                const done = regQueue.filter(e => e.status === 'done').length;
+                const err = regQueue.filter(e => e.status === 'error').length;
+                const total = regQueue.length;
+                regSummaryEl.textContent = `${total} file${total !== 1 ? 's' : ''} — ${done} ingested${err ? ', ' + err + ' failed' : ''}`;
+                regListEl.innerHTML = regQueue.map(e => fileItemHTML(e)).join('');
+            }
+
+            // ── Policy zone: drag & drop + file input ──────────────────────────────────
+            polDropZone.addEventListener('dragover', e => { e.preventDefault(); polDropZone.classList.add('drag-over'); });
+            polDropZone.addEventListener('dragleave', () => polDropZone.classList.remove('drag-over'));
+            polDropZone.addEventListener('drop', e => {
+                e.preventDefault(); polDropZone.classList.remove('drag-over');
+                const files = Array.from(e.dataTransfer.files).filter(f => f.name.endsWith('.pdf'));
+                if (files.length) uploadPolicy(files[0]);
+                else toast('Only PDF files are supported', true);
+            });
+            polDropZone.addEventListener('click', () => polFileInput.click());
+            polFileInput.addEventListener('change', () => {
+                if (polFileInput.files[0]) uploadPolicy(polFileInput.files[0]);
+                polFileInput.value = '';
+            });
+            $('pol-change-btn').addEventListener('click', () => {
+                policyDocId = null;
+                policyName = null;
+                clearPolicyDoc();
+                polReadyChip.style.display = 'none';
+                polDropZone.style.display = 'block';
+                polQueueEl.style.display = 'none';
+                polZoneCard.classList.remove('ready');
+                refreshRunBtn();
+            });
+
+            async function uploadPolicy(file) {
+                if (isPolUploading) return;
+                isPolUploading = true;
+
+                polDropZone.style.display = 'none';
+                polProg.style.display = 'block';
+                polProgBar.style.width = '0%';
+                polProgLbl.textContent = `Uploading: ${file.name}…`;
+                animateProgress(polProgBar, polProgLbl, 0, 85, 1500);
+
+                const entry = { name: file.name, docId: null, status: 'uploading', errMsg: '' };
+                polQueueEl.style.display = 'flex';
+                polSummaryEl.textContent = file.name;
+                polListEl.innerHTML = fileItemHTML(entry);
+
+                const fd = new FormData();
+                fd.append('file', file);
+                fd.append('doc_type', 'internal_policy');
+
+                try {
+                    const r = await fetch(`${API}/upload/`, { method: 'POST', body: fd });
+                    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+                    const data = await r.json();
+                    policyDocId = data.doc_id;
+                    policyName = file.name;
+                    savePolicyDoc(policyDocId, policyName);
+                    polProgBar.style.width = '100%';
+                    entry.status = 'done';
+                    entry.docId = policyDocId;
+                    polListEl.innerHTML = fileItemHTML(entry);
+                    polSummaryEl.textContent = file.name;
+                    toast('✅ Policy uploaded — ready to run analysis');
+                    showPolicyReady();
+                } catch (e) {
+                    entry.status = 'error';
+                    entry.errMsg = e.message;
+                    polListEl.innerHTML = fileItemHTML(entry);
+                    toast(`❌ Policy upload failed: ${e.message}`, true);
+                    polDropZone.style.display = 'block';
+                    polQueueEl.style.display = 'none';
+                }
+
+                polProg.style.display = 'none';
+                isPolUploading = false;
+                refreshRunBtn();
+            }
+
+            function showPolicyReady() {
+                polReadyChip.style.display = 'flex';
+                polReadyName.textContent = `✓ ${policyName || 'Policy ready'}`;
+                polDropZone.style.display = 'none';
+                polQueueEl.style.display = 'none';
+                polZoneCard.classList.add('ready');
+            }
+
+            // ── Shared helpers ─────────────────────────────────────────────────────────
+            function refreshRunBtn() {
+                runBtn.disabled = !policyDocId;
+            }
+
+            function fileItemHTML(entry) {
+                const icons = { pending: '📄', uploading: '⏳', done: '✅', error: '❌' };
+                const labels = { pending: 'Queued', uploading: 'Uploading…', done: 'Done', error: 'Failed' };
+                return `<div class="file-item ${entry.status}">
+                    <span class="file-item-icon">${icons[entry.status]}</span>
+                    <span class="file-item-name" title="${esc(entry.name)}">${esc(entry.name)}</span>
+                    <span class="file-item-badge ${entry.status}">${labels[entry.status]}${entry.errMsg ? ': ' + esc(entry.errMsg.slice(0, 40)) : ''}</span>
+                </div>`;
+            }
+
+            function animateProgress(bar, lbl, from, to, ms) {
+                const step = (to - from) / (ms / 20);
+                let v = from;
+                const t = setInterval(() => {
+                    v = Math.min(v + step, to);
+                    bar.style.width = v + '%';
+                    lbl.textContent = v >= 100 ? 'Processing…' : 'Uploading… ' + Math.round(v) + '%';
+                    if (v >= to) clearInterval(t);
+                }, 20);
+            }
+
+            function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+            // ── Run analysis ───────────────────────────────────────────────────────────
+            runBtn.addEventListener('click', runAnalysis);
+
+            async function runAnalysis() {
+                if (!policyDocId) { toast('Please upload a policy PDF first', true); return; }
+
+                const body = {
+                    policy_doc_id: policyDocId,
+                    jurisdiction_filter: $('jurisdiction-filter').value || null,
+                    regulation_type_filter: $('regulation-type-filter').value || null,
+                    as_of_date: $('as-of-date').value || null,
+                    max_obligations: parseInt($('max-obligations').value) || 75,
+                };
+
+                stepperSec.style.display = 'block';
+                reportSec.style.display = 'none';
+                runBtn.disabled = true;
+                window.scrollTo({ top: stepperSec.offsetTop - 20, behavior: 'smooth' });
+
+                setStep(0);
+                await delay(400);
+                setStep(1); setMsg('Running hybrid pre-filter across regulatory corpus…');
+                await delay(600);
+                setStep(2); setMsg('LLM judging each obligation — this takes 30–90 seconds…');
+
+                try {
+                    const r = await fetch(`${API}/gap-analysis/`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body),
+                    });
+                    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+
+                    setStep(3); setMsg('Running evidence hallucination guard…');
+                    await delay(300);
+                    setStep(4); setMsg('Building report…');
+                    await delay(300);
+
+                    const data = await r.json();
+                    markAllDone();
+                    await delay(500);
+                    renderReport(data);
+                    stepperSec.style.display = 'none';
+                    reportSec.style.display = 'block';
+                    window.scrollTo({ top: reportSec.offsetTop - 20, behavior: 'smooth' });
+                    toast('Analysis complete!');
+                } catch (e) {
+                    setMsg('❌ ' + e.message);
+                    toast('Analysis failed: ' + e.message, true);
+                } finally {
+                    runBtn.disabled = false;
+                }
+            }
+
+            // ── Stepper helpers ────────────────────────────────────────────────────────
+            let currentStep = -1;
+            function setStep(n) {
+                if (currentStep >= 0) $(`step-${currentStep}`).className = 'step done';
+                $(`step-${n}`).className = 'step active';
+                currentStep = n;
+            }
+            function markAllDone() {
+                for (let i = 0; i <= 4; i++) $(`step-${i}`).className = 'step done';
+                $('step-status').innerHTML = '<span style="color:var(--covered)">✓ Analysis complete</span>';
+            }
+            function setMsg(m) { $('step-status-msg').textContent = m; }
+
+            // ── Render report ──────────────────────────────────────────────────────────
+            function renderReport(data) {
+                const rep = data.report;
+                currentReportId = rep.report_id;
+
+                const score = rep.overall_coverage_score;
+                const scoreColor = score >= 70 ? 'var(--covered)' : score >= 40 ? 'var(--partial)' : 'var(--missing)';
+                $('gauge-score').textContent = score.toFixed(1) + '%';
+                $('gauge-score').style.color = scoreColor;
+                const deg = (score / 100 * 360).toFixed(1);
+                $('gauge-ring').style.background =
+                    `conic-gradient(var(--accent1) 0deg, var(--accent2) ${deg}deg, rgba(255,255,255,0.06) ${deg}deg)`;
+
+                const { missing, partial, covered } = rep.summary;
+                $('count-missing').textContent = missing;
+                $('count-partial').textContent = partial;
+                $('count-covered').textContent = covered;
+                $('tc-missing').textContent = missing;
+                $('tc-partial').textContent = partial;
+                $('tc-covered').textContent = covered;
+
+                $('meta-total').textContent = rep.total_obligations_analyzed;
+                $('meta-conf').textContent = (rep.avg_confidence * 100).toFixed(0) + '%';
+                $('meta-hall').textContent = rep.hallucination_rejections;
+                $('meta-lat').textContent = rep.latency_seconds.toFixed(1) + 's';
+                $('report-date').textContent = new Date(rep.assessment_date).toLocaleString();
+
+                renderPanel('panel-missing', rep.missing, 'missing');
+                renderPanel('panel-partial', rep.partial, 'partial');
+                renderPanel('panel-covered', rep.covered, 'covered');
+                lastReportData = data;   // cache for PDF download
+            }
+
+            function renderPanel(panelId, gaps, type) {
+                const panel = $(panelId);
+                if (!gaps || gaps.length === 0) {
+                    panel.innerHTML = `<div class="empty-tab">${type === 'covered' ? '🎉 No gaps in this category' :
+                        type === 'missing' ? '✅ No missing obligations found' : '✅ No partial obligations found'}</div>`;
+                    return;
+                }
+                panel.innerHTML = gaps.map((g, i) => buildCard(g, i)).join('');
+                panel.querySelectorAll('.show-more-btn').forEach(btn => {
+                    btn.addEventListener('click', function () {
+                        const txt = this.previousElementSibling;
+                        txt.classList.toggle('truncated');
+                        this.textContent = txt.classList.contains('truncated') ? 'Show more' : 'Show less';
+                    });
+                });
+            }
+
+            function buildCard(g, idx) {
+                const statusCls = g.status.toLowerCase();
+                const sevCls = (g.severity || 'info').toLowerCase();
+                const juris = g.jurisdiction ? `<span class="badge juris">${g.jurisdiction}</span>` : '';
+                const level = g.obligation_level ? `<span class="badge info">${g.obligation_level}</span>` : '';
+                const sev = `<span class="badge ${sevCls}">${(g.severity || 'info').toUpperCase()}</span>`;
+                const conf = `<span class="confidence-pill">${(g.confidence * 100).toFixed(0)}% conf.</span>`;
+                const regType = g.regulation_type ? `<strong>${g.regulation_type}</strong> — ` : '';
+                const source = `${regType}${g.regulation_source || ''}${g.regulation_page ? ', p.' + g.regulation_page : ''}`;
+                const section = g.regulation_section ? `<br><span style="font-size:.75rem;color:var(--muted)">§ ${g.regulation_section}</span>` : '';
+
+                const gapRow = g.gap_reason ? `<div class="detail-row"><span class="detail-icon">❌</span><span><span class="detail-label">Gap: </span><span class="detail-val">${esc(g.gap_reason)}</span></span></div>` : '';
+                const remedyBox = g.remediation ? `<div class="remedy-box">💡 <strong>Suggested Remedy:</strong><br>${esc(g.remediation)}</div>` : '';
+                const evRow = g.evidence ? `<div class="detail-row"><span class="detail-icon">📎</span><span><span class="detail-label">Evidence: </span><span class="detail-val" style="font-style:italic">"${esc(g.evidence.substring(0, 240))}${g.evidence.length > 240 ? '…' : ''}"</span></span></div>` : '';
+                const graphRow = g.graph_path ? `<div class="graph-path">🔗 ${esc(g.graph_path)}</div>` : '';
+                const hasDetail = gapRow || remedyBox || evRow || graphRow;
+
+                return `
+    <div class="gap-card">
+      <div class="gap-card-header">
+        <div class="gap-badges">
+          <span class="badge ${statusCls}">${g.status}</span>
+          ${sev} ${juris} ${level}
+        </div>
+        ${conf}
+      </div>
+      <div class="gap-source">${source}${section}</div>
+      <div class="gap-text truncated">${esc(g.obligation_text)}</div>
+      <button class="show-more-btn">Show more</button>
+      ${hasDetail ? `<div class="gap-detail">${gapRow}${evRow}${graphRow}${remedyBox}</div>` : ''}
+    </div>`;
+            }
+
+            function esc(s) {
+                if (!s) return '';
+                return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            }
+
+            // ── Tabs ───────────────────────────────────────────────────────────────────
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.addEventListener('click', function () {
+                    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+                    this.classList.add('active');
+                    $('panel-' + this.dataset.tab).classList.add('active');
+                });
+            });
+
+            // ── Download Markdown ──────────────────────────────────────────────────────
+            $('download-btn').addEventListener('click', async () => {
+                if (!currentReportId) return;
+                try {
+                    const r = await fetch(`${API}/gap-analysis/${currentReportId}/markdown`);
+                    if (!r.ok) throw new Error(r.statusText);
+                    const md = await r.text();
+                    const url = URL.createObjectURL(new Blob([md], { type: 'text/markdown' }));
+                    const a = Object.assign(document.createElement('a'), { href: url, download: `gap_report_${currentReportId.slice(0, 8)}.md` });
+                    a.click(); URL.revokeObjectURL(url);
+                    toast('Markdown report downloaded');
+                } catch (e) { toast('Download failed: ' + e.message, true); }
+            });
+
+            // ── Download PDF ───────────────────────────────────────────────────────────
+            $('download-pdf-btn').addEventListener('click', () => {
+                if (!lastReportData) { toast('No report to download yet', true); return; }
+                toast('Generating PDF…');
+                setTimeout(() => generatePDF(lastReportData), 100);
+            });
+
+            function generatePDF(data) {
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+                const PW = doc.internal.pageSize.getWidth();
+                const PH = doc.internal.pageSize.getHeight();
+                const MARGIN = 42;
+                const CONTENT_W = PW - MARGIN * 2;
+                const rep = data.report;
+
+                const C = {
+                    bg: [6, 8, 16],
+                    surface: [18, 22, 35],
+                    accent1: [59, 130, 246],
+                    accent2: [16, 185, 129],
+                    missing: [239, 68, 68],
+                    partial: [245, 158, 11],
+                    covered: [16, 185, 129],
+                    text: [226, 232, 240],
+                    muted: [100, 116, 139],
+                    white: [255, 255, 255],
+                };
+
+                function fillRect(x, y, w, h, rgb) {
+                    doc.setFillColor(...rgb); doc.rect(x, y, w, h, 'F');
+                }
+                function txt(str, x, y, opts = {}) {
+                    doc.setTextColor(...(opts.color || C.text));
+                    doc.setFontSize(opts.size || 10);
+                    doc.setFont('helvetica', opts.style || 'normal');
+                    doc.text(String(str || ''), x, y, { maxWidth: opts.maxWidth || CONTENT_W, align: opts.align || 'left' });
+                }
+                function newPage() {
+                    doc.addPage();
+                    fillRect(0, 0, PW, PH, C.bg);
+                    // top bar
+                    doc.setFillColor(...C.accent1); doc.rect(0, 0, PW * 0.5, 4, 'F');
+                    doc.setFillColor(...C.accent2); doc.rect(PW * 0.5, 0, PW * 0.5, 4, 'F');
+                }
+
+                // ── Page 1 background ──
+                fillRect(0, 0, PW, PH, C.bg);
+                doc.setFillColor(...C.accent1); doc.rect(0, 0, PW * 0.5, 6, 'F');
+                doc.setFillColor(...C.accent2); doc.rect(PW * 0.5, 0, PW * 0.5, 6, 'F');
+
+                // Title block
+                txt('AML Compliance Gap Analysis Report', MARGIN, 68, { size: 20, style: 'bold', color: C.white });
+                txt('SIA-RAG Intelligence Platform', MARGIN, 90, { size: 11, color: C.muted });
+                txt('Generated: ' + new Date(rep.assessment_date).toLocaleString(), MARGIN, 108, { size: 9, color: C.muted });
+                if (policyName) txt('Policy: ' + policyName, MARGIN, 122, { size: 9, color: C.muted });
+
+                doc.setDrawColor(...C.accent1); doc.setLineWidth(0.5);
+                doc.line(MARGIN, 134, PW - MARGIN, 134);
+
+                // ── Coverage score circle ──
+                const score = rep.overall_coverage_score;
+                const scoreBgColor = score >= 70 ? C.covered : score >= 40 ? C.partial : C.missing;
+                const cx = MARGIN + 50, cy2 = 206;
+                doc.setFillColor(...C.surface); doc.circle(cx, cy2, 44, 'F');
+                doc.setFillColor(...scoreBgColor); doc.circle(cx, cy2, 40, 'F');
+                doc.setFillColor(...C.bg); doc.circle(cx, cy2, 28, 'F');
+                txt(score.toFixed(0) + '%', cx, cy2 + 4, { size: 13, style: 'bold', color: scoreBgColor, align: 'center', maxWidth: 56 });
+                txt('Coverage', cx, cy2 + 17, { size: 7, color: C.muted, align: 'center', maxWidth: 56 });
+
+                // Stat pills
+                [
+                    { label: 'Missing', count: rep.summary.missing, col: C.missing },
+                    { label: 'Partial', count: rep.summary.partial, col: C.partial },
+                    { label: 'Covered', count: rep.summary.covered, col: C.covered },
+                ].forEach((p, i) => {
+                    const px = MARGIN + 118 + i * 126, py = 172;
+                    fillRect(px, py, 114, 58, C.surface);
+                    doc.setFillColor(...p.col); doc.rect(px, py, 4, 58, 'F');
+                    txt(String(p.count), px + 14, py + 27, { size: 19, style: 'bold', color: p.col });
+                    txt(p.label, px + 14, py + 44, { size: 8, color: C.muted });
+                });
+
+                // Meta row
+                fillRect(MARGIN, 252, CONTENT_W, 42, C.surface);
+                [
+                    ['Obligations', rep.total_obligations_analyzed],
+                    ['Avg Confidence', (rep.avg_confidence * 100).toFixed(0) + '%'],
+                    ['Hallucination Guards', rep.hallucination_rejections],
+                    ['Duration', rep.latency_seconds.toFixed(1) + 's'],
+                ].forEach(([k, v], i) => {
+                    const mx = MARGIN + 10 + i * (CONTENT_W / 4);
+                    txt(k, mx, 267, { size: 7, color: C.muted });
+                    txt(String(v), mx, 283, { size: 10, style: 'bold', color: C.text });
+                });
+
+                // ── Stacked bar chart ──
+                txt('COVERAGE BREAKDOWN', MARGIN, 322, { size: 8, color: C.muted, style: 'bold' });
+                const total = (rep.summary.missing + rep.summary.partial + rep.summary.covered) || 1;
+                const barY = 330, barH = 20;
+                let bx = MARGIN;
+                [[rep.summary.covered, C.covered], [rep.summary.partial, C.partial], [rep.summary.missing, C.missing]]
+                    .forEach(([n, col]) => { const bw = (n / total) * CONTENT_W; if (bw > 0) { fillRect(bx, barY, bw, barH, col); bx += bw; } });
+                [
+                    { label: '\u25a0 Covered', n: rep.summary.covered, col: C.covered, ox: 0 },
+                    { label: '\u25a0 Partial', n: rep.summary.partial, col: C.partial, ox: 130 },
+                    { label: '\u25a0 Missing', n: rep.summary.missing, col: C.missing, ox: 260 },
+                ].forEach(({ label, n, col, ox }) => {
+                    const pct = ((n / total) * 100).toFixed(1);
+                    txt(label + '  ' + n + '  (' + pct + '%)', MARGIN + ox, barY + barH + 15, { size: 8, color: col });
+                });
+
+                doc.setDrawColor(...C.accent1); doc.setLineWidth(0.4);
+                doc.line(MARGIN, barY + barH + 34, PW - MARGIN, barY + barH + 34);
+                txt('DETAILED GAP ANALYSIS', MARGIN, barY + barH + 50, { size: 9, color: C.muted, style: 'bold' });
+
+                // ── Gap cards ──
+                const allGaps = [
+                    ...((rep.missing || []).map(g => ({ ...g, _sec: 'MISSING' }))),
+                    ...((rep.partial || []).map(g => ({ ...g, _sec: 'PARTIAL' }))),
+                    ...((rep.covered || []).map(g => ({ ...g, _sec: 'COVERED' }))),
+                ];
+
+                let yPos = barY + barH + 64;
+                const lineH = 13;
+
+                allGaps.forEach(g => {
+                    const sCol = g._sec === 'MISSING' ? C.missing : g._sec === 'PARTIAL' ? C.partial : C.covered;
+                    const oblText = (g.obligation_text || '').slice(0, 500);
+                    const gapText = (g.gap_reason || '').slice(0, 200);
+                    const evText = (g.evidence || '').slice(0, 200);
+                    const remText = (g.remediation || '').slice(0, 200);
+
+                    // Estimate height
+                    const oblLines = doc.splitTextToSize(oblText, CONTENT_W - 18);
+                    const gLines = gapText ? doc.splitTextToSize(gapText, CONTENT_W - 50) : [];
+                    const eLines = evText ? doc.splitTextToSize('"' + evText + '"', CONTENT_W - 60) : [];
+                    const rLines = remText ? doc.splitTextToSize(remText, CONTENT_W - 55) : [];
+                    const rows = 1 + oblLines.length
+                        + (gLines.length ? gLines.length + 1 : 0)
+                        + (eLines.length ? eLines.length + 1 : 0)
+                        + (rLines.length ? rLines.length + 1 : 0);
+                    const cardH = rows * lineH + 26;
+
+                    if (yPos + cardH > PH - 42) { newPage(); yPos = MARGIN + 10; }
+
+                    fillRect(MARGIN, yPos, CONTENT_W, cardH, C.surface);
+                    doc.setFillColor(...sCol); doc.rect(MARGIN, yPos, 4, cardH, 'F');
+
+                    let cy3 = yPos + 15;
+
+                    // Header row
+                    txt(g._sec, MARGIN + 12, cy3, { size: 7, style: 'bold', color: sCol });
+                    const src = [g.regulation_type ? '[' + g.regulation_type + ']' : '', g.regulation_source || '', g.regulation_page ? 'p.' + g.regulation_page : '', g.jurisdiction ? '(' + g.jurisdiction + ')' : ''].filter(Boolean).join('  ');
+                    txt(src, MARGIN + 68, cy3, { size: 7, color: C.muted, maxWidth: CONTENT_W - 120 });
+                    txt(((g.confidence || 0) * 100).toFixed(0) + '%', PW - MARGIN - 2, cy3, { size: 7, color: C.muted, align: 'right' });
+                    cy3 += lineH;
+
+                    // Obligation text
+                    doc.setTextColor(...C.text); doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+                    doc.text(oblLines, MARGIN + 12, cy3);
+                    cy3 += oblLines.length * lineH;
+
+                    if (gLines.length) {
+                        cy3 += 4;
+                        txt('Gap: ', MARGIN + 12, cy3, { size: 8, style: 'bold', color: C.missing });
+                        doc.setTextColor(...C.muted); doc.setFontSize(8); doc.setFont('helvetica', 'normal');
+                        doc.text(gLines, MARGIN + 32, cy3); cy3 += gLines.length * lineH;
+                    }
+                    if (eLines.length) {
+                        cy3 += 4;
+                        txt('Evidence: ', MARGIN + 12, cy3, { size: 8, style: 'bold', color: C.accent1 });
+                        doc.setTextColor(...C.muted); doc.setFontSize(8); doc.setFont('helvetica', 'italic');
+                        doc.text(eLines, MARGIN + 52, cy3); cy3 += eLines.length * lineH;
+                    }
+                    if (rLines.length) {
+                        cy3 += 4;
+                        txt('Remedy: ', MARGIN + 12, cy3, { size: 8, style: 'bold', color: C.accent2 });
+                        doc.setTextColor(...C.covered); doc.setFontSize(8); doc.setFont('helvetica', 'normal');
+                        doc.text(rLines, MARGIN + 46, cy3);
+                    }
+
+                    yPos += cardH + 7;
+                });
+
+                // ── Footer on every page ──
+                const totalPages = doc.internal.getNumberOfPages();
+                for (let p = 1; p <= totalPages; p++) {
+                    doc.setPage(p);
+                    fillRect(0, PH - 26, PW, 26, C.surface);
+                    txt('SIA-RAG AML Intelligence Platform  —  Confidential', MARGIN, PH - 10, { size: 7, color: C.muted });
+                    txt('Page ' + p + ' of ' + totalPages, PW - MARGIN, PH - 10, { size: 7, color: C.muted, align: 'right' });
+                    if (p > 1) {
+                        doc.setFillColor(...C.accent1); doc.rect(0, 0, PW * 0.5, 4, 'F');
+                        doc.setFillColor(...C.accent2); doc.rect(PW * 0.5, 0, PW * 0.5, 4, 'F');
+                    }
+                }
+
+                doc.save('AML_Gap_Report_' + (currentReportId || 'report').slice(0, 8) + '.pdf');
+                toast('✅ PDF saved!');
+            }
+
+            // ── Init ───────────────────────────────────────────────────────────────────
+            checkHealth();
+            restoreState();
+
+        })();
+    </script>
+</body>
+
+</html>

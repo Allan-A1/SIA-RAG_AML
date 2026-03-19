@@ -21,6 +21,9 @@ class GraphState(TypedDict):
     # Tracking flags
     zoomed_out: Optional[bool]  # Track if we zoomed out during retrieval
 
+    # Conversation memory — last N messages for contextual awareness
+    conversation_history: Optional[List[dict]]  # [{"role": "user"|"assistant", "content": "..."}]
+
     # Final output
     final_answer: Optional[str]
 

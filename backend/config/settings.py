@@ -10,7 +10,9 @@ class Settings(BaseSettings):
     # ============================================
     # LLM Provider Selection
     # ============================================
-    llm_provider: Literal["openai", "ollama", "gemini", "groq", "huggingface"] = Field(default="ollama", env="LLM_PROVIDER")
+    llm_provider: Literal["openai", "ollama", "gemini", "groq", "huggingface", "openrouter", "fallback"] = Field(default="fallback", env="LLM_PROVIDER")
+    fallback_primary: str = Field(default="groq", env="FALLBACK_PRIMARY")
+    fallback_secondary: str = Field(default="openrouter", env="FALLBACK_SECONDARY")
     
     # ============================================
     # OpenAI Configuration
@@ -32,8 +34,9 @@ class Settings(BaseSettings):
     # ============================================
     # Groq Configuration (FREE TIER, FAST)
     # ============================================
-    groq_api_key: Optional[str] = os.getenv("GROQ_API_KEY")
-    groq_model: str = "llama-3.1-8b-instant"
+    groq_api_key:   Optional[str] = os.getenv("GROQ_API_KEY")
+    groq_api_key_2: Optional[str] = os.getenv("GROQ_API_KEY_2")   # second account for rotation
+    groq_model: str = "llama-3.3-70b-versatile"
 
     # ============================================
     # HuggingFace Inference API
@@ -41,6 +44,13 @@ class Settings(BaseSettings):
     huggingface_api_key: Optional[str] = Field(default=None, env="HUGGINGFACE_API_KEY")
     huggingface_model: str = Field(default="Qwen/Qwen3-30B-A3B-Instruct-2507", env="HUGGINGFACE_MODEL")
     huggingface_base_url: str = "https://api-inference.huggingface.co/v1/"
+    
+    # ============================================
+    # OpenRouter Configuration
+    # ============================================
+    openrouter_api_key: Optional[str] = os.getenv("OPENROUTER_API_KEY", "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")
+    openrouter_router_model: str = Field(default="openai/gpt-4o-mini", env="OPENROUTER_ROUTER_MODEL")
+    openrouter_verifier_model: str = Field(default="openai/gpt-4o", env="OPENROUTER_VERIFIER_MODEL")
     
     # ============================================
     # Model Configuration (applies to active provider)
@@ -143,14 +153,11 @@ def get_llm_client():
         )
     
     elif settings.llm_provider == "groq":
-        from openai import OpenAI
-        if not settings.groq_api_key:
-            raise ValueError("GROQ_API_KEY is required when using Groq provider")
-        client = OpenAI(
-            base_url="https://api.groq.com/openai/v1",
-            api_key=settings.groq_api_key
-        )
-        return GroqAdapter(client)
+        from backend.config.groq_rotator import GroqRotatingClient
+        keys = [k for k in [settings.groq_api_key, settings.groq_api_key_2] if k]
+        if not keys:
+            raise ValueError("At least one GROQ_API_KEY is required when using Groq provider")
+        return GroqRotatingClient(api_keys=keys)
 
     elif settings.llm_provider == "huggingface":
         if not settings.huggingface_api_key:
@@ -160,22 +167,60 @@ def get_llm_client():
             model=settings.huggingface_model,
         )
 
+    elif settings.llm_provider == "openrouter":
+        from openai import OpenAI
+        if not settings.openrouter_api_key:
+            raise ValueError("OPENROUTER_API_KEY is required when using OpenRouter provider")
+        client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=settings.openrouter_api_key
+        )
+        return OpenAIAdapter(client)
+
+    elif settings.llm_provider == "fallback":
+        # Create a temporary setting override to get the individual clients
+        original_provider = settings.llm_provider
+        
+        try:
+            # 1. Get Primary
+            settings.llm_provider = settings.fallback_primary
+            primary_client = get_llm_client()
+            
+            # 2. Get Secondary
+            settings.llm_provider = settings.fallback_secondary
+            secondary_client = get_llm_client()
+            
+            from backend.config.llm_adapter import FallbackAdapter
+            return FallbackAdapter(primary_client, secondary_client)
+            
+        finally:
+            # Restore original setting
+            settings.llm_provider = original_provider
+
     else:
         raise ValueError(f"Unknown LLM provider: {settings.llm_provider}")
 
 
-def get_model_name(role: str = "verifier"):
+def get_model_name(role: str = "verifier", provider: str = None):
     """Get the appropriate model name based on provider and role."""
-    if settings.llm_provider == "openai":
+    active_provider = provider or settings.llm_provider
+    if active_provider == "fallback":
+        # For fallback, we initially return the primary's model
+        # The FallbackAdapter will map to the secondary model internally if it fails
+        active_provider = settings.fallback_primary
+        
+    if active_provider == "openai":
         return settings.verifier_model if role == "verifier" else settings.router_model
-    elif settings.llm_provider == "ollama":
+    elif active_provider == "ollama":
         return settings.ollama_model
-    elif settings.llm_provider == "gemini":
+    elif active_provider == "gemini":
         return settings.gemini_model
-    elif settings.llm_provider == "groq":
+    elif active_provider == "groq":
         return settings.groq_model
-    elif settings.llm_provider == "huggingface":
+    elif active_provider == "huggingface":
         return settings.huggingface_model
+    elif active_provider == "openrouter":
+        return settings.openrouter_verifier_model if role == "verifier" else settings.openrouter_router_model
     else:
         return settings.ollama_model  # Default fallback
 
@@ -190,5 +235,8 @@ def validate_config():
     
     if settings.llm_provider == "groq" and not settings.groq_api_key:
         raise ValueError("GROQ_API_KEY environment variable is required when using Groq")
+    
+    if settings.llm_provider == "openrouter" and not settings.openrouter_api_key:
+        raise ValueError("OPENROUTER_API_KEY environment variable is required when using OpenRouter")
     
     return True
