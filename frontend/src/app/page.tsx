@@ -11,8 +11,10 @@ import {
 import Link from "next/link"
 import { motion } from "framer-motion"
 
-const Canvas       = dynamic(() => import("@react-three/fiber").then((m) => m.Canvas), { ssr: false })
-const NetworkGraph = dynamic(() => import("@/components/3d/NetworkGraph").then((m) => m.NetworkGraph), { ssr: false })
+const ShaderBackground = dynamic(
+  () => import("@/components/ui/shader-background"),
+  { ssr: false }
+)
 
 /* ── Feature data ──────────────────────────────────────────────── */
 const features = [
@@ -74,16 +76,8 @@ export default function Home() {
   return (
     <main className="relative min-h-screen overflow-hidden" aria-label="SIA-RAG Home">
 
-      {/* 3-D background — lazy-loaded */}
-      <div className="absolute inset-0 z-0 pointer-events-none opacity-35">
-        <Canvas camera={{ position: [0, 0, 18], fov: 55 }}>
-          <ambientLight intensity={0.4} />
-          <NetworkGraph />
-        </Canvas>
-      </div>
-
-      {/* Subtle grid overlay */}
-      <div className="absolute inset-0 z-0 grid-bg pointer-events-none opacity-30" />
+      {/* Shader background — lazy-loaded */}
+      <ShaderBackground />
 
       {/* Page content */}
       <div className="relative z-10">

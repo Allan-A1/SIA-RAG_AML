@@ -5,6 +5,6 @@ start "SIA-RAG Backend" cmd /k "uvicorn backend.app:app --host 0.0.0.0 --port 80
 echo.
 echo ✅ Backend running at http://localhost:8000
 echo    Docs:     http://localhost:8000/docs
-echo    Frontend: open frontend\index.html in your browser
+echo    Frontend: http://localhost:3000 (after running npm run dev in frontend-next)
 echo.
 pause
