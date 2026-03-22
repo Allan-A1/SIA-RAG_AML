@@ -36,8 +36,14 @@ def _resolve_device() -> str:
     return "cpu"
 
 
-# Resolve once at import time so the log message appears at startup
-EMBEDDING_DEVICE = _resolve_device()
+# Device resolution is now lazy to prevent PyTorch from blocking server boot
+_EMBEDDING_DEVICE = None
+
+def get_device() -> str:
+    global _EMBEDDING_DEVICE
+    if _EMBEDDING_DEVICE is None:
+        _EMBEDDING_DEVICE = _resolve_device()
+    return _EMBEDDING_DEVICE
 
 # ── AML collection name constants ─────────────────────────────────────────────
 COLLECTION_REGULATORY     = "aml_regulatory"       # FATF, RBI, PMLA, FIU-IND docs
@@ -66,7 +72,7 @@ class ChromaStore:
         if settings.embedding_provider == "local":
             self.embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
                 model_name=settings.embedding_model,
-                device=EMBEDDING_DEVICE,
+                device=get_device(),
             )
         else:
             if not settings.openai_api_key:
